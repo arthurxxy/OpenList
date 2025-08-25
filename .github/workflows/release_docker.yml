@@ -150,8 +150,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: arthurxxy
+          password: Yuan070516
 
       - name: Login to DockerHub Container Registry
         if: env.IMAGE_PUSH == 'true'
@@ -221,8 +221,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: arthurxxy
+          password: Yuan070516
 
       - name: Login to DockerHub Container Registry
         if: env.IMAGE_PUSH == 'true'
