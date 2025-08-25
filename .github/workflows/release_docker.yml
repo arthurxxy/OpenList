@@ -149,7 +149,7 @@ jobs:
         if: env.IMAGE_PUSH == 'true'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: arthurxxy/openlist
           username: arthurxxy
           password: Yuan070516
 
