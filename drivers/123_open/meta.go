@@ -13,7 +13,7 @@ type Addition struct {
 	ClientID     string `json:"ClientID" required:"false"`
 	ClientSecret string `json:"ClientSecret" required:"false"`
 
-	//  直接写入AccessToken
+	//  直接写入AccessToken, AccessToken有过期时间，不建议直接填写
 	AccessToken string `json:"AccessToken" required:"false"`
 
 	//  用户名+密码方式登录的AccessToken可以兼容
@@ -24,7 +24,7 @@ type Addition struct {
 	UploadThread int `json:"UploadThread" type:"number" default:"3" help:"the threads of upload"`
 
 	//  使用直链
-	DirectLink              bool   `json:"DirectLink" type:"boolean" default:"false" required:"false" help:"use direct link when download file"`
+	DirectLink              bool   `json:"DirectLink" type:"bool" default:"false" required:"false" help:"use direct link when download file"`
 	DirectLinkPrivateKey    string `json:"DirectLinkPrivateKey" required:"false" help:"private key for direct link, if URL authentication is enabled"`
 	DirectLinkValidDuration int64  `json:"DirectLinkValidDuration" type:"number" default:"30" required:"false" help:"minutes, if URL authentication is enabled"`
 
@@ -35,6 +35,7 @@ var config = driver.Config{
 	Name:        "123 Open",
 	DefaultRoot: "0",
 	LocalSort:   true,
+	PreferProxy: true,
 }
 
 func init() {

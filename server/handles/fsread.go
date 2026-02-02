@@ -33,27 +33,27 @@ type DirReq struct {
 }
 
 type ObjResp struct {
-	Id          string                     `json:"id"`
-	Path        string                     `json:"path"`
-	Name        string                     `json:"name"`
-	Size        int64                      `json:"size"`
-	IsDir       bool                       `json:"is_dir"`
-	Modified    time.Time                  `json:"modified"`
-	Created     time.Time                  `json:"created"`
-	Sign        string                     `json:"sign"`
-	Thumb       string                     `json:"thumb"`
-	Type        int                        `json:"type"`
-	HashInfoStr string                     `json:"hashinfo"`
-	HashInfo    map[*utils.HashType]string `json:"hash_info"`
+	Name         string                     `json:"name"`
+	Size         int64                      `json:"size"`
+	IsDir        bool                       `json:"is_dir"`
+	Modified     time.Time                  `json:"modified"`
+	Created      time.Time                  `json:"created"`
+	Sign         string                     `json:"sign"`
+	Thumb        string                     `json:"thumb"`
+	Type         int                        `json:"type"`
+	HashInfoStr  string                     `json:"hashinfo"`
+	HashInfo     map[*utils.HashType]string `json:"hash_info"`
+	MountDetails *model.StorageDetails      `json:"mount_details,omitempty"`
 }
 
 type FsListResp struct {
-	Content  []ObjResp `json:"content"`
-	Total    int64     `json:"total"`
-	Readme   string    `json:"readme"`
-	Header   string    `json:"header"`
-	Write    bool      `json:"write"`
-	Provider string    `json:"provider"`
+	Content           []ObjResp `json:"content"`
+	Total             int64     `json:"total"`
+	Readme            string    `json:"readme"`
+	Header            string    `json:"header"`
+	Write             bool      `json:"write"`
+	Provider          string    `json:"provider"`
+	DirectUploadTools []string  `json:"direct_upload_tools,omitempty"`
 }
 
 func FsListSplit(c *gin.Context) {
@@ -98,24 +98,30 @@ func FsList(c *gin.Context, req *ListReq, user *model.User) {
 		common.ErrorStrResp(c, "Refresh without permission", 403)
 		return
 	}
-	objs, err := fs.List(c.Request.Context(), reqPath, &fs.ListArgs{Refresh: req.Refresh})
+	objs, err := fs.List(c.Request.Context(), reqPath, &fs.ListArgs{
+		Refresh:            req.Refresh,
+		WithStorageDetails: !user.IsGuest() && !setting.GetBool(conf.HideStorageDetails),
+	})
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return
 	}
 	total, objs := pagination(objs, &req.PageReq)
 	provider := "unknown"
-	storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
-	if err == nil {
-		provider = storage.GetStorage().Driver
+	var directUploadTools []string
+	if user.CanWrite() {
+		if storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{}); err == nil {
+			directUploadTools = op.GetDirectUploadTools(storage)
+		}
 	}
 	common.SuccessResp(c, FsListResp{
-		Content:  toObjsResp(objs, reqPath, isEncrypt(meta, reqPath)),
-		Total:    int64(total),
-		Readme:   getReadme(meta, reqPath),
-		Header:   getHeader(meta, reqPath),
-		Write:    user.CanWrite() || common.CanWrite(meta, reqPath),
-		Provider: provider,
+		Content:           toObjsResp(objs, reqPath, isEncrypt(meta, reqPath)),
+		Total:             int64(total),
+		Readme:            getReadme(meta, reqPath),
+		Header:            getHeader(meta, reqPath),
+		Write:             user.CanWrite() || common.CanWrite(meta, reqPath),
+		Provider:          provider,
+		DirectUploadTools: directUploadTools,
 	})
 }
 
@@ -224,19 +230,19 @@ func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjResp {
 	var resp []ObjResp
 	for _, obj := range objs {
 		thumb, _ := model.GetThumb(obj)
+		mountDetails, _ := model.GetStorageDetails(obj)
 		resp = append(resp, ObjResp{
-			Id:          obj.GetID(),
-			Path:        obj.GetPath(),
-			Name:        obj.GetName(),
-			Size:        obj.GetSize(),
-			IsDir:       obj.IsDir(),
-			Modified:    obj.ModTime(),
-			Created:     obj.CreateTime(),
-			HashInfoStr: obj.GetHash().String(),
-			HashInfo:    obj.GetHash().Export(),
-			Sign:        common.Sign(obj, parent, encrypt),
-			Thumb:       thumb,
-			Type:        utils.GetObjType(obj.GetName(), obj.IsDir()),
+			Name:         obj.GetName(),
+			Size:         obj.GetSize(),
+			IsDir:        obj.IsDir(),
+			Modified:     obj.ModTime(),
+			Created:      obj.CreateTime(),
+			HashInfoStr:  obj.GetHash().String(),
+			HashInfo:     obj.GetHash().Export(),
+			Sign:         common.Sign(obj, parent, encrypt),
+			Thumb:        thumb,
+			Type:         utils.GetObjType(obj.GetName(), obj.IsDir()),
+			MountDetails: mountDetails,
 		})
 	}
 	return resp
@@ -293,7 +299,9 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 		common.ErrorStrResp(c, "password is incorrect or you have no permission", 403)
 		return
 	}
-	obj, err := fs.Get(c.Request.Context(), reqPath, &fs.GetArgs{})
+	obj, err := fs.Get(c.Request.Context(), reqPath, &fs.GetArgs{
+		WithStorageDetails: !user.IsGuest() && !setting.GetBool(conf.HideStorageDetails),
+	})
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return
@@ -301,8 +309,8 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 	var rawURL string
 
 	storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
-	provider := "unknown"
-	if err == nil {
+	provider, ok := model.GetProvider(obj)
+	if !ok && err == nil {
 		provider = storage.Config().Name
 	}
 	if !obj.IsDir() {
@@ -350,20 +358,20 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 	}
 	parentMeta, _ := op.GetNearestMeta(parentPath)
 	thumb, _ := model.GetThumb(obj)
+	mountDetails, _ := model.GetStorageDetails(obj)
 	common.SuccessResp(c, FsGetResp{
 		ObjResp: ObjResp{
-			Id:          obj.GetID(),
-			Path:        obj.GetPath(),
-			Name:        obj.GetName(),
-			Size:        obj.GetSize(),
-			IsDir:       obj.IsDir(),
-			Modified:    obj.ModTime(),
-			Created:     obj.CreateTime(),
-			HashInfoStr: obj.GetHash().String(),
-			HashInfo:    obj.GetHash().Export(),
-			Sign:        common.Sign(obj, parentPath, isEncrypt(meta, reqPath)),
-			Type:        utils.GetFileType(obj.GetName()),
-			Thumb:       thumb,
+			Name:         obj.GetName(),
+			Size:         obj.GetSize(),
+			IsDir:        obj.IsDir(),
+			Modified:     obj.ModTime(),
+			Created:      obj.CreateTime(),
+			HashInfoStr:  obj.GetHash().String(),
+			HashInfo:     obj.GetHash().Export(),
+			Sign:         common.Sign(obj, parentPath, isEncrypt(meta, reqPath)),
+			Type:         utils.GetFileType(obj.GetName()),
+			Thumb:        thumb,
+			MountDetails: mountDetails,
 		},
 		RawURL:   rawURL,
 		Readme:   getReadme(meta, reqPath),
